@@ -24,6 +24,7 @@ import dimod
 from dwave.cloud import Client
 from dwave.embedding import embed_bqm, is_valid_embedding
 from dwave.system import DWaveSampler
+from dwave.system.testing import MockDWaveSampler
 
 from helpers.kz_calcs import *
 from helpers.layouts_cards import *
@@ -34,6 +35,14 @@ from helpers.tooltips import tool_tips
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
+# Initialize MockDWave Sampler
+qpu_name = 'Mock D-Wave Solver'
+qpu = MockDWaveSampler(topology_type='pegasus', topology_shape=[16])
+qpu.name = qpu_name
+qpus= {qpu_name: qpu}
+init_job_status = 'READY'
+client = None
+"""
 # Initialize: available QPUs, initial progress-bar status 
 try:
     client = Client.from_config(client='qpu')
@@ -45,7 +54,7 @@ except Exception:
     qpus = {}
     client = None
     init_job_status = 'NO SOLVER'
-
+"""
 # Dashboard-organization section
 app.layout = dbc.Container([
     dbc.Row([                       # Top: logo
@@ -99,7 +108,7 @@ def alert_no_solver(dummy):
 
     if trigger_id == 'btn_simulate':
         if not client:
-            return True
+            return False # previously set to True, o need to show modal with mock sampler
 
     return False
 
@@ -191,8 +200,8 @@ def cache_embeddings(qpu_name, embeddings_found, embeddings_cached):
                 # Validate that loaded embeddings' edges are still available on the selected QPU
                 for length in list(embeddings_cached.keys()):
                     
-                    source_graph = dimod.to_networkx_graph(create_bqm(num_spins=length)).edges 
-                    target_graph = qpus[qpu_name].edges
+                    source_graph = dimod.to_networkx_graph(create_bqm(num_spins=length)).edgelist # prev edges
+                    target_graph = qpus[qpu_name].edgelist
                     emb = embeddings_cached[length]
 
                     if not is_valid_embedding(emb, source_graph, target_graph):
@@ -245,7 +254,7 @@ def display_graphics_kink_density(kz_graph_display, J, schedule_filename, \
 
             embeddings_cached = embeddings_cached = json_to_dict(embeddings_cached)
 
-            sampleset_unembedded = get_samples(client, job_id, spins, J, embeddings_cached[spins])              
+            sampleset_unembedded = get_samples( job_id, spins, J, embeddings_cached[spins]) # prev pass in client as first arg         
             _, kink_density = kink_stats(sampleset_unembedded, J)
             
             fig = plot_kink_density(kz_graph_display, figure, kink_density, ta)
@@ -274,7 +283,7 @@ def display_graphics_spin_ring(spins, job_submit_state, job_id, J, embeddings_ca
         if job_submit_state == 'COMPLETED':
 
             embeddings_cached = embeddings_cached = json_to_dict(embeddings_cached)
-            sampleset_unembedded = get_samples(client, job_id, spins, J, embeddings_cached[spins])
+            sampleset_unembedded = get_samples(job_id, spins, J, embeddings_cached[spins]) # prev client as first arg
             kinks_per_sample, kink_density = kink_stats(sampleset_unembedded, J)
             best_indx = np.abs(kinks_per_sample - kink_density).argmin()
             best_sample = sampleset_unembedded.record.sample[best_indx]
@@ -311,8 +320,12 @@ def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, embeddings_cached):
         embeddings_cached = json_to_dict(embeddings_cached)
         embedding = embeddings_cached[spins]
 
-        bqm_embedded = embed_bqm(bqm, embedding, DWaveSampler(solver=solver.name).adjacency)
+        bqm_embedded = embed_bqm(bqm, embedding, solver.adjacency) # prev  DWaveSampler(solver=solver.name)
 
+        sampleset = solver.sample(bqm_embedded,
+                                  num_reads=100,
+                                  label=f'Examples - Kibble-Zurek Simulation, submitted: {job_submit_time}',)
+        """
         computation = solver.sample_bqm(
             bqm=bqm_embedded,
             fast_anneal=True,
@@ -321,8 +334,10 @@ def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, embeddings_cached):
             answer_mode='raw',              # Easier than accounting for num_occurrences
             num_reads=100, 
             label=f'Examples - Kibble-Zurek Simulation, submitted: {job_submit_time}',)   
-
+        
         return computation.wait_id()
+        """
+        return sampleset
 
     return dash.no_update
 
@@ -358,7 +373,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         if spins in cached_embedding_lengths:   
 
             submit_time = datetime.datetime.now().strftime('%c')
-            job_submit_state = 'SUBMITTED'
+            job_submit_state = 'COMPLETED' # prev SUBMITTED
             embedding = dash.no_update
 
         else:
@@ -380,7 +395,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         if embeddings_found == 'needed':
 
             try:
-                embedding = find_one_to_one_embedding(spins, qpus[qpu_name].edges)
+                embedding = find_one_to_one_embedding(spins, qpus[qpu_name].edgelist) #prev edges
                 if embedding:
                     job_submit_state = 'EMBEDDING'  # Stay another WD to allow caching the embedding
                     embedding = {spins: embedding}
@@ -394,10 +409,10 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         else:   # Found embedding last WD, so is cached, so now can submit job
             
             submit_time = datetime.datetime.now().strftime('%c')
-            job_submit_state = 'SUBMITTED'
+            job_submit_state = 'COMPLETED' #'SUBMITTED'
 
         return True, False, 0.2*1000, 0, job_submit_state, submit_time, embedding
-
+    """
     if any(job_submit_state == status for status in
         ['SUBMITTED', 'PENDING', 'IN_PROGRESS']):
 
@@ -409,7 +424,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
             wd_time = 1*1000
 
         return True, False, wd_time, 0, job_submit_state, dash.no_update, dash.no_update
-
+    """
     if any(job_submit_state == status for status in ['COMPLETED', 'CANCELLED', 'FAILED']):
 
         disable_btn = False
@@ -452,6 +467,15 @@ dict(display='none'), dict(display='none'), dict(display='none'),
 
     return dict(), dict(), dict(), dict(), dict(), dict(), dict(), dict(), dict()
 
+def get_samples(sampleset, spins, J, embedding):
+    """Retrieve samples from the computation."""
+    bqm = create_bqm(num_spins=spins, coupling_strength=J)
+
+    sampleset_unembedded = dimod.unembed_sampleset(
+        sampleset, embedding, bqm, chain_break_method=dimod.DiscreteQuadraticModel
+    )
+
+    return sampleset_unembedded
 
 if __name__ == "__main__":
     app.run_server(debug=True)

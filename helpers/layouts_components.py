@@ -16,47 +16,12 @@ import dash_bootstrap_components as dbc
 from dash.dcc import Checklist, Dropdown, Input, Link, RadioItems, Slider
 from dash import html
 
-__all__ = ['config_anneal_duration', 'config_kz_graph', 'config_spins', 
+__all__ = ['config_anneal_duration', 'config_noise_level', 'config_kz_graph', 'config_spins', 
     'config_coupling_strength', 'config_qpu_selection', 'dbc_modal', 'embeddings',
     'job_bar_display', 'ring_lengths', 'tooltips_activate', ]
 
+# Ring lengths along with the spins button 
 ring_lengths = [512, 1024, 2048]
-
-config_anneal_duration = Input(
-    id='anneal_duration',
-    type='number',
-    min=5,
-    max=100,
-    step=1,
-    value=7,
-    style={'max-width': '95%'}
-)
-
-config_kz_graph = RadioItems(
-    id='kz_graph_display',
-    options=[
-        {
-            'label': 'Both', 
-            'value': 'both', 
-            'disabled': False
-        },
-        {
-            'label': 'Kink density', 
-            'value': 'kink_density', 
-            'disabled': False
-        },
-        {
-            'label': 'Schedule', 
-            'value': 'schedule', 
-            'disabled': False
-        }, 
-    ],
-    value='both',
-    inputStyle={'margin-right': '10px', 'margin-bottom': '5px'},
-    labelStyle={'color': 'rgb(3, 184, 255)', 'font-size': 12, 'display': 'inline-block', 'marginLeft': 20},
-    inline=True,    # Currently requires above 'inline-block'
-)
-
 config_spins = RadioItems(
     id='spins',
     options=[
@@ -72,6 +37,7 @@ config_spins = RadioItems(
     inline=True,    # Currently requires above 'inline-block'
 )
 
+# Initialize coupling strength scle 
 j_marks = {round(0.1*val, 1): {'label': f'{round(0.1*val, 1)}', 'style': {'color': 'blue'}} if 
            round(0.1*val, 0) != 0.1*val else 
            {'label': f'{round(0.1*val)}', 'style': {'color': 'blue'}} 
@@ -98,12 +64,96 @@ config_coupling_strength = dbc.Row([
     ),    
 ])
 
+# Quench Duration box and noise level box
+config_anneal_duration = Input(
+    id='anneal_duration',
+    type='number',
+    min=5,
+    max=100,
+    step=1,
+    value=7,
+    style={'max-width': '95%'}
+)
+config_noise_level = Input(
+    id='noise_level',
+    type='number',
+    min=0,
+    max=100,
+    step=1,
+    value=1,
+    style={'max-width': '95%'}
+)
+
+# QPU selection box
 def config_qpu_selection(solvers):
     return Dropdown(
         id='qpu_selection',
         options=[{'label': qpu_name, 'value': qpu_name} for qpu_name in solvers],
         placeholder='Select a quantum computer'
     )
+
+embeddings = Checklist(
+    options=[{
+        'label': 
+            html.Div([
+                f'{length}'], 
+                style={'color': 'white', 'font-size': 10, 'marginRight': 10}
+            ), 
+        'value': length,
+        'disabled': True,
+    } for length in ring_lengths], 
+    value=[], 
+    id=f'embedding_is_cached',
+    style={'color': 'white'},
+    inline=True
+)
+
+# Activate tooltip for hinting user on hover
+tooltips_activate  = RadioItems(
+    id='tooltips_show',
+    options=[
+        {
+            'label': 'On', 
+            'value': 'on', 
+        },
+        {
+            'label': 'Off', 
+            'value': 'off', 
+        }
+    ],
+    value='on',
+    inputStyle={'margin-right': '10px', 'margin-bottom': '10px'},
+    labelStyle={'color': 'white', 'font-size': 12, 'display': 'inline-block', 'marginLeft': 20},
+    inline=True,    # Currently requires above 'inline-block'
+)
+
+# Graphs for visualization
+config_kz_graph = RadioItems(
+    id='kz_graph_display',
+    options=[
+        {
+            'label': 'Both', 
+            'value': 'both', 
+            'disabled': False
+        },
+        {
+            'label': 'Kink density', 
+            'value': 'kink_density', 
+            'disabled': False
+        },
+        {
+            'label': 'Schedule', 
+            'value': 'schedule', 
+            'disabled': False
+        }, 
+    ],
+    value='both',
+    inputStyle={'margin-right': '10px', 'margin-bottom': '5px'},
+    labelStyle={'color': 'rgb(3, 184, 255)', 'font-size': 12, 'display': 'inline-block', 'marginLeft': 20},
+    inline=True,    # Currently requires above 'inline-block'
+)
+
+
 
 job_bar_display = {
     'READY': [0, 'link'],
@@ -159,36 +209,3 @@ def dbc_modal(name):
         ])
         ]
 
-embeddings = Checklist(
-    options=[{
-        'label': 
-            html.Div([
-                f'{length}'], 
-                style={'color': 'white', 'font-size': 10, 'marginRight': 10}
-            ), 
-        'value': length,
-        'disabled': True,
-    } for length in ring_lengths], 
-    value=[], 
-    id=f'embedding_is_cached',
-    style={'color': 'white'},
-    inline=True
-)
-
-tooltips_activate  = RadioItems(
-    id='tooltips_show',
-    options=[
-        {
-            'label': 'On', 
-            'value': 'on', 
-        },
-        {
-            'label': 'Off', 
-            'value': 'off', 
-        }
-    ],
-    value='on',
-    inputStyle={'margin-right': '10px', 'margin-bottom': '10px'},
-    labelStyle={'color': 'white', 'font-size': 12, 'display': 'inline-block', 'marginLeft': 20},
-    inline=True,    # Currently requires above 'inline-block'
-)

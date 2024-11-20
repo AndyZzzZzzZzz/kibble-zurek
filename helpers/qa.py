@@ -76,7 +76,9 @@ def get_job_status(client, job_id, job_submit_time):
     Returns:
         Embedding, as a dict of format ``{spin: [qubit]}``.
     """
-
+    if client is None:
+        return 'COMPLETED'
+    
     p = Problems.from_config(client.config)
 
     try:
@@ -94,7 +96,7 @@ def get_job_status(client, job_id, job_submit_time):
 
         return None
 
-def get_samples(client, job_id, num_spins, J, embedding):
+def get_samples(client, job_id, num_spins, J, embedding, qpu=None):
     """Retrieve an unembedded sample set for a given job ID. 
 
     Args:
@@ -114,10 +116,14 @@ def get_samples(client, job_id, num_spins, J, embedding):
         Unembedded dimod sample set. 
     """
     
-    sampleset = client.retrieve_answer(job_id).sampleset
-            
+    if client is not None:
+        sampleset = client.retrieve_answer(job_id).sampleset
+
+
     bqm = create_bqm(num_spins=num_spins, coupling_strength=J)
-    
+    if client is None:
+        sampleset = qpu.sample(bqm)
+        
     return  unembed_sampleset(sampleset, embedding, bqm)
 
 def json_to_dict(emb_json):

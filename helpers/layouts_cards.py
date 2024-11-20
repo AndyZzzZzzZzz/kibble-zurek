@@ -75,12 +75,21 @@ of spins undergoing a phase transition, described by the Kibble-Zurek mechanism.
                 html.Div([
                     config_coupling_strength
                 ]),
-                html.H5(
-                    'Quench Duration [ns]',
-                    style=control_header_style
-                ),
-                html.Div([
-                    config_anneal_duration
+                dbc.Row([
+                        dbc.Col([
+                            html.H5(
+                                'Quench Duration [ns]',
+                                style=control_header_style
+                            ),
+                            config_anneal_duration
+                        ]),
+                        dbc.Col([
+                            html.H5(
+                                'Noise Level',
+                                style=control_header_style
+                            ),
+                            config_noise_level
+                        ])
                 ]),
                 html.H5(
                     'QPU',

@@ -25,6 +25,7 @@ from dwave.cloud import Client
 from dwave.embedding import embed_bqm, is_valid_embedding
 from dwave.system import DWaveSampler
 from dwave.system.testing import MockDWaveSampler
+from dwave.samplers import SimulatedAnnealingSampler
 
 from helpers.kz_calcs import *
 from helpers.layouts_cards import *
@@ -35,18 +36,16 @@ from helpers.tooltips import tool_tips
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
-# Initialize MockDWave Sampler
-qpu_name = 'Mock D-Wave Solver'
-qpu = MockDWaveSampler(topology_type='pegasus', topology_shape=[16])
-qpu.name = qpu_name
-qpus= {qpu_name: qpu}
-init_job_status = 'READY'
-client = None
-"""
 # Initialize: available QPUs, initial progress-bar status 
 try:
-    client = Client.from_config(client='qpu')
-    qpus = {qpu.name: qpu for qpu in client.get_solvers(fast_anneal_time_range__covers=[0.005, 0.1])}
+    # client = Client.from_config(client='qpu')
+    # qpus = {qpu.name: qpu for qpu in client.get_solvers(fast_anneal_time_range__covers=[0.005, 0.1])}
+    qpu_name = 'MockDWaveSampler'
+    qpu = MockDWaveSampler(topology_type='pegasus', topology_shape=[16])
+    qpu.name = qpu_name
+    qpus= {qpu_name: qpu}
+    qpu = SimulatedAnnealingSampler()
+    client = None
     if len(qpus) < 1:
         raise Exception    
     init_job_status = 'READY'
@@ -54,7 +53,7 @@ except Exception:
     qpus = {}
     client = None
     init_job_status = 'NO SOLVER'
-"""
+
 # Dashboard-organization section
 app.layout = dbc.Container([
     dbc.Row([                       # Top: logo
@@ -93,25 +92,32 @@ app.layout = dbc.Container([
     fluid=True,
 )
 
+# Flask server for deployment and allow callbacks to reference component not in initial layout
 server = app.server
 app.config['suppress_callback_exceptions'] = True
 
 # Callbacks Section
-
+# n_click is auto managed by dash for all button component, whenever a button is clicked n_click increase by 1
+# if btn_simulate triggers this callback, output is_open parameter to solver_modal
+# is open is auto managed by dash, boolean value true = display modal and false = not display
 @app.callback(
     Output('solver_modal', 'is_open'),
     Input('btn_simulate', 'n_clicks'),)
 def alert_no_solver(dummy):
+    print("callback alert_no_solver")
     """Notify if no quantum computer is accessible."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
 
     if trigger_id == 'btn_simulate':
         if not client:
-            return False # previously set to True, o need to show modal with mock sampler
+            return False # previously set to True, no need to show modal with mock sampler
 
     return False
 
+# disabled is a property managed by Dash to make component noninteractive
+# children property is content or value displayed inside component (in thiscase its a string for job status)
+# state allow call back to access options of spins without triggering callbacks itself
 @app.callback(
     Output('anneal_duration', 'disabled'),
     Output('coupling_strength', 'disabled'),
@@ -119,11 +125,14 @@ def alert_no_solver(dummy):
     Output('qpu_selection', 'disabled'),
     Input('job_submit_state', 'children'),
     State('spins', 'options'))
-def disable_buttons(job_submit_state, spins_options):        
+def disable_buttons(job_submit_state, spins_options):
+    print("callback disable button")        
     """Disable user input during job submissions."""
 
+    # identify which component is triggering the call back
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
 
+    # no_update is a special constant provioded by Dash to indicate particular output shouldnt by updated
     if trigger_id !='job_submit_state':
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
@@ -145,15 +154,20 @@ def disable_buttons(job_submit_state, spins_options):
     else:
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
+# Input is the name of qpu
+# children is an empty string of quench_schedule_filename
+# The output of the function determines the file name and its style
 @app.callback(
     Output('quench_schedule_filename', 'children'),
     Output('quench_schedule_filename', 'style'),
     Input('qpu_selection', 'value'),)
 def set_schedule(qpu_name):
+    print("callback set_schedule")  
     """Set the schedule for the selected QPU."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
 
+    # Default filename and style
     schedule_filename = 'FALLBACK_SCHEDULE.csv'  
     schedule_filename_style = {'color': 'red', 'fontSize': 12}
  
@@ -172,6 +186,10 @@ def set_schedule(qpu_name):
 
     return schedule_filename, schedule_filename_style
 
+# Input the name of the selected qpu
+# Input the embeddings found
+# Allow the callback to access the cached embedings 
+# Saved embedding data to cache along with the embedding sizes (number of spins) taht are currently cached
 @app.callback(
     Output('embeddings_cached', 'data'),
     Output('embedding_is_cached', 'value'),
@@ -179,6 +197,7 @@ def set_schedule(qpu_name):
     Input('embeddings_found', 'data'),
     State('embeddings_cached', 'data'),)
 def cache_embeddings(qpu_name, embeddings_found, embeddings_cached):
+    print("callback cache embeddings")  
     """Cache embeddings for the selected QPU."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
@@ -200,14 +219,15 @@ def cache_embeddings(qpu_name, embeddings_found, embeddings_cached):
                 # Validate that loaded embeddings' edges are still available on the selected QPU
                 for length in list(embeddings_cached.keys()):
                     
-                    source_graph = dimod.to_networkx_graph(create_bqm(num_spins=length)).edgelist # prev edges
-                    target_graph = qpus[qpu_name].edgelist
+                    source_graph = dimod.to_networkx_graph(create_bqm(num_spins=length)).edges
+                    target_graph = qpus[qpu_name].edges
                     emb = embeddings_cached[length]
 
                     if not is_valid_embedding(emb, source_graph, target_graph):
 
                         del embeddings_cached[length]
 
+    # If new embeddings were found during runtime, update cached embeddings
     if trigger_id == 'embeddings_found':
 
         if not isinstance(embeddings_found, str): # embeddings_found != 'needed' or 'not found'
@@ -221,6 +241,7 @@ def cache_embeddings(qpu_name, embeddings_found, embeddings_cached):
             return dash.no_update, dash.no_update
 
     return embeddings_cached, list(embeddings_cached.keys())
+
 
 @app.callback(
     Output('sample_vs_theory', 'figure'),
@@ -238,6 +259,7 @@ def cache_embeddings(qpu_name, embeddings_found, embeddings_cached):
 def display_graphics_kink_density(kz_graph_display, J, schedule_filename, \
     job_submit_state, job_id, ta_min, ta_max, ta, \
     spins, embeddings_cached, figure):
+    print("callback graphics kink density")  
     """Generate graphics for kink density based on theory and QPU samples."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
@@ -254,7 +276,7 @@ def display_graphics_kink_density(kz_graph_display, J, schedule_filename, \
 
             embeddings_cached = embeddings_cached = json_to_dict(embeddings_cached)
 
-            sampleset_unembedded = get_samples( job_id, spins, J, embeddings_cached[spins]) # prev pass in client as first arg         
+            sampleset_unembedded = get_samples(client,job_id, spins, J, embeddings_cached[spins], qpu=qpu) 
             _, kink_density = kink_stats(sampleset_unembedded, J)
             
             fig = plot_kink_density(kz_graph_display, figure, kink_density, ta)
@@ -275,7 +297,7 @@ def display_graphics_kink_density(kz_graph_display, J, schedule_filename, \
     State('embeddings_cached', 'data'),)
 def display_graphics_spin_ring(spins, job_submit_state, job_id, J, embeddings_cached):
     """Generate graphics for spin-ring display."""
-
+    print("callback graphics spin ring")  
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
    
     if trigger_id == 'job_submit_state': 
@@ -283,7 +305,7 @@ def display_graphics_spin_ring(spins, job_submit_state, job_id, J, embeddings_ca
         if job_submit_state == 'COMPLETED':
 
             embeddings_cached = embeddings_cached = json_to_dict(embeddings_cached)
-            sampleset_unembedded = get_samples(job_id, spins, J, embeddings_cached[spins]) # prev client as first arg
+            sampleset_unembedded = get_samples(client, job_id, spins, J, embeddings_cached[spins], qpu=qpu) 
             kinks_per_sample, kink_density = kink_stats(sampleset_unembedded, J)
             best_indx = np.abs(kinks_per_sample - kink_density).argmin()
             best_sample = sampleset_unembedded.record.sample[best_indx]
@@ -298,49 +320,53 @@ def display_graphics_spin_ring(spins, job_submit_state, job_id, J, embeddings_ca
     fig = plot_spin_orientation(num_spins=spins, sample=None)
     return fig
 
+# Takes job_submit_time as input as a string
+# Output jobID
 @app.callback(
     Output('job_id', 'children'),
-    Input('job_submit_time', 'children'),
+    Input('job_submit_time', 'children'), # change it so that submitted button triggers submit jobs
     State('qpu_selection', 'value'),
     State('spins', 'value'),
     State('coupling_strength', 'value'),
     State('anneal_duration', 'value'),
+    State('noise_level', 'value'),
     State('embeddings_cached', 'data'),)
-def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, embeddings_cached):
+def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, ta_noise_ns, embeddings_cached):
+    print("callback submit job")  
     """Submit job and provide job ID."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
 
     if trigger_id =='job_submit_time':
 
+        
         solver = qpus[qpu_name]
 
         bqm = create_bqm(num_spins=spins, coupling_strength=J)
 
         embeddings_cached = json_to_dict(embeddings_cached)
         embedding = embeddings_cached[spins]
-
-        bqm_embedded = embed_bqm(bqm, embedding, solver.adjacency) # prev  DWaveSampler(solver=solver.name)
-
-        sampleset = solver.sample(bqm_embedded,
-                                  num_reads=100,
-                                  label=f'Examples - Kibble-Zurek Simulation, submitted: {job_submit_time}',)
-        """
-        computation = solver.sample_bqm(
-            bqm=bqm_embedded,
-            fast_anneal=True,
-            annealing_time=0.001*ta_ns,     # SAPI anneal time units is microseconds
-            auto_scale=False, 
-            answer_mode='raw',              # Easier than accounting for num_occurrences
-            num_reads=100, 
-            label=f'Examples - Kibble-Zurek Simulation, submitted: {job_submit_time}',)   
+        print(embedding)
+        bqm_embedded = embed_bqm(bqm, embedding, MockDWaveSampler(solver=solver.name).adjacency)
+        qpu.sample_bqm(bqm=bqm_embedded)
         
+        # # new submit jobs function using DWaveSampler
+        # computation = solver.sample_bqm(
+        #     bqm=bqm_embedded,
+        #     fast_anneal=True,
+        #     annealing_time=0.001*ta_ns,     # SAPI anneal time units is microseconds
+        #     auto_scale=False, 
+        #     answer_mode='raw',              # Easier than accounting for num_occurrences
+        #     num_reads=100, 
+        #     label=f'Examples - Kibble-Zurek Simulation, submitted: {job_submit_time}',)   
+        
+        return "DONE"
         return computation.wait_id()
-        """
-        return sampleset
+        
 
     return dash.no_update
 
+# 
 @app.callback(
     Output('btn_simulate', 'disabled'),
     Output('wd_job', 'disabled'),
@@ -360,6 +386,7 @@ def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, embeddings_cached):
     State('embeddings_found', 'data'),)
 def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
              cached_embedding_lengths, spins, qpu_name, embeddings_found):
+    print("callback simulate")  
     """Manage simulation: embedding, job submission."""
 
     trigger_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
@@ -373,7 +400,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         if spins in cached_embedding_lengths:   
 
             submit_time = datetime.datetime.now().strftime('%c')
-            job_submit_state = 'COMPLETED' # prev SUBMITTED
+            job_submit_state = 'SUBMITTED'
             embedding = dash.no_update
 
         else:
@@ -395,7 +422,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         if embeddings_found == 'needed':
 
             try:
-                embedding = find_one_to_one_embedding(spins, qpus[qpu_name].edgelist) #prev edges
+                embedding = find_one_to_one_embedding(spins, qpus[qpu_name].edges) #prev edges
                 if embedding:
                     job_submit_state = 'EMBEDDING'  # Stay another WD to allow caching the embedding
                     embedding = {spins: embedding}
@@ -409,10 +436,10 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
         else:   # Found embedding last WD, so is cached, so now can submit job
             
             submit_time = datetime.datetime.now().strftime('%c')
-            job_submit_state = 'COMPLETED' #'SUBMITTED'
+            job_submit_state = 'SUBMITTED'
 
         return True, False, 0.2*1000, 0, job_submit_state, submit_time, embedding
-    """
+    
     if any(job_submit_state == status for status in
         ['SUBMITTED', 'PENDING', 'IN_PROGRESS']):
 
@@ -424,7 +451,7 @@ def simulate(dummy1, dummy2, job_id, job_submit_state, job_submit_time, \
             wd_time = 1*1000
 
         return True, False, wd_time, 0, job_submit_state, dash.no_update, dash.no_update
-    """
+    
     if any(job_submit_state == status for status in ['COMPLETED', 'CANCELLED', 'FAILED']):
 
         disable_btn = False
@@ -466,16 +493,6 @@ dict(display='none'), dict(display='none'), dict(display='none'), \
 dict(display='none'), dict(display='none'), dict(display='none'), 
 
     return dict(), dict(), dict(), dict(), dict(), dict(), dict(), dict(), dict()
-
-def get_samples(sampleset, spins, J, embedding):
-    """Retrieve samples from the computation."""
-    bqm = create_bqm(num_spins=spins, coupling_strength=J)
-
-    sampleset_unembedded = dimod.unembed_sampleset(
-        sampleset, embedding, bqm, chain_break_method=dimod.DiscreteQuadraticModel
-    )
-
-    return sampleset_unembedded
 
 if __name__ == "__main__":
     app.run_server(debug=True)

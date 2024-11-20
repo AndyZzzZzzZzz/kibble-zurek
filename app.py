@@ -343,11 +343,14 @@ def submit_job(job_submit_time, qpu_name, spins, J, ta_ns, ta_noise_ns, embeddin
         solver = qpus[qpu_name]
 
         bqm = create_bqm(num_spins=spins, coupling_strength=J)
-
-        embeddings_cached = json_to_dict(embeddings_cached)
-        embedding = embeddings_cached[spins]
-        print(embedding)
-        bqm_embedded = embed_bqm(bqm, embedding, MockDWaveSampler(solver=solver.name).adjacency)
+        embedding = {i: i for i in bqm.variables}
+        bqm_embedded = bqm    
+        
+        # embeddings_cached = json_to_dict(embeddings_cached)
+        # embedding = embeddings_cached[spins]
+        # print(embedding)
+          
+        # bqm_embedded = embed_bqm(bqm, embedding, MockDWaveSampler(solver=solver.name).adjacency)
         qpu.sample_bqm(bqm=bqm_embedded)
         
         # # new submit jobs function using DWaveSampler

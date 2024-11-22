@@ -21,7 +21,8 @@ from helpers.kz_calcs import theoretical_kink_density
 
 __all__ = ['plot_kink_densities_bg', 'plot_kink_density', 'plot_spin_orientation', ]
 
-def plot_kink_densities_bg(display, time_range, coupling_strength, schedule_name):
+# removed coupling_strength
+def plot_kink_densities_bg(display, time_range, schedule_name):
     """
     Plot background of theoretical kink-density and QPU energy scales. 
 
@@ -51,7 +52,9 @@ def plot_kink_densities_bg(display, time_range, coupling_strength, schedule_name
     A_joule = A_ghz/1.5092E24     
     B_joule = B_ghz/1.5092E24
 
-    n = theoretical_kink_density(time_range, coupling_strength, schedule, schedule_name)
+    # Variable used to fix theoretical bounds
+    theoretical_J = -1.8
+    n = theoretical_kink_density(time_range, theoretical_J, schedule, schedule_name)
     
     predicted_plus = go.Scatter(
         x=np.asarray(time_range), 
@@ -98,7 +101,7 @@ def plot_kink_densities_bg(display, time_range, coupling_strength, schedule_name
 
     energy_problem = go.Scatter(
         x=s,      
-        y=abs(coupling_strength) * B_joule, 
+        y=abs(theoretical_J) * B_joule, # prev coupling_strength
         mode='lines',
         name='B(s)', 
         xaxis=x_axis,
